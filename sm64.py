@@ -9,7 +9,7 @@ from direct.task import Task
 SM64_TEXTURE_WIDTH = 64 * 11
 SM64_TEXTURE_HEIGHT = 64
 SM64_GEO_MAX_TRIANGLES = 1024
-SM64_SCALE_FACTOR = 50
+SM64_SCALE_FACTOR = 1
 
 class SM64Surface(ct.Structure):
     _fields_ = [
@@ -115,33 +115,63 @@ class SM64State:
         print(tri2)
         self.sm64.sm64_static_surfaces_load(tempsurf, 2)
     
-    def add_surface_triangles(self, model):
-        geomNodeCollection = model.findAllMatches('**/+GeomNode')
+    # Adds a specified amount of nodes to the static surfaces list
+    def add_surface_triangles(self, *arg):
+        tempdata = []
 
-        surface_array = []
+        def rebound(item):
+            item = int(item)
+            bounds = 0x7FFF
+            if item > bounds:
+                return bounds
+            if item < -bounds:
+                return -bounds
+            return item
 
-        # dear god
-        # only tristrips for now
-        for nodePath in geomNodeCollection:
-            geomNode = nodePath.node()
-            for i in range(geomNode.getNumGeoms()):
-                geom = geomNode.getGeom(i)
-#                state = geomNode.getGeomState(i)
-#                print(geom)
-#                print(state)
-                vdata = geom.getVertexData()
-                print(vdata)
-                for j in range(geom.getNumPrimitives()):
-                    prim = geom.getPrimitive(j)
-                    print(prim)
-#                    vertex = GeomVertexReader(vdata, 'vertex')
-#                    texcoord = GeomVertexReader(vdata, 'texcoord')
-#                    while not vertex.isAtEnd():
-#                        v = vertex.getData3()
-#                        t = texcoord.getData2()
-#                        print("v = %s, t = %s" % (repr(v), repr(t)))
-#                        surf = SM64Surface()
-#                        surface_array.append()
+        for model in arg:
+            geomNodeCollection = model.findAllMatches('**/+GeomNode')
+
+            modelpos = model.getPos()
+            modelscale = model.getScale()
+            for nodePath in geomNodeCollection:
+                geomNode = nodePath.node()
+                for i in range(geomNode.getNumGeoms()):
+                    geom = geomNode.getGeom(i)
+
+                    vdata = geom.getVertexData()
+
+                    for j in range(geom.getNumPrimitives()):
+                        prim = geom.getPrimitive(j).decompose()
+                        vertex = GeomVertexReader(vdata, 'vertex')
+                        for k in range(prim.getNumPrimitives()):
+                            sf = SM64Surface()
+                            s = prim.getPrimitiveStart(k)
+                            e = prim.getPrimitiveEnd(k)
+                            vertdata = []
+                            for l in range(s, e):
+                                vi = prim.getVertex(l)
+                                vertex.setRow(vi)
+                                v = vertex.getData3()
+                                vertdata.append(v)
+                            sf.surftype = COLLISION_TYPES['SURFACE_DEFAULT']
+                            sf.terrain = COLLISION_TYPES['TERRAIN_GRASS']
+                            # rip floats
+                            sf.v0x = rebound((vertdata[0].getX() * modelscale.getX()) + modelpos.getX())
+                            sf.v0y = rebound((vertdata[0].getY() * modelscale.getY()) + modelpos.getY())
+                            sf.v0z = rebound((vertdata[0].getZ() * modelscale.getZ()) + modelpos.getZ())
+                            sf.v1x = rebound((vertdata[1].getX() * modelscale.getX()) + modelpos.getX())
+                            sf.v1y = rebound((vertdata[1].getY() * modelscale.getY()) + modelpos.getY())
+                            sf.v1z = rebound((vertdata[1].getZ() * modelscale.getZ()) + modelpos.getZ())
+                            sf.v2x = rebound((vertdata[2].getX() * modelscale.getX()) + modelpos.getX())
+                            sf.v2y = rebound((vertdata[2].getY() * modelscale.getY()) + modelpos.getY())
+                            sf.v2z = rebound((vertdata[2].getZ() * modelscale.getZ()) + modelpos.getZ())
+                            tempdata.append(sf)
+        
+        surf = (SM64Surface * len(tempdata))()
+        for i in range(len(tempdata)):
+            surf[i] = tempdata[i]
+
+        self.sm64.sm64_static_surfaces_load(surf, len(surf))
 
 class SM64Mario(NodePath):
     # Vertex Formats
@@ -167,11 +197,11 @@ class SM64Mario(NodePath):
         if showbase == None:
             print("Showbase does not exist!")
             del self
-            return None
+            return
         if state == None:
             print("State does not exist!")
             del self
-            return None
+            return
         
         self.mario_inputs = SM64MarioInputs()
         self.mario_state = SM64MarioState()
@@ -181,7 +211,7 @@ class SM64Mario(NodePath):
         if self.mario_id == -1:
             print("Couldn't create this Mario! Is there solid ground at that position?")
             del self
-            return None
+            return
         self.mario_task_name = 'MarioTick' + str(self.mario_id)
         self.setName('MarioNode' + str(self.mario_id))
 
@@ -201,9 +231,9 @@ class SM64Mario(NodePath):
         uv = GeomVertexWriter(vdata, 'uv')
 
         for i in range(geo.numTrianglesUsed):
-            x = geo.position_data[3*i] * self.mario_scale
-            y = geo.position_data[3*i+1] * self.mario_scale
-            z = geo.position_data[3*i+2] * self.mario_scale
+            x = geo.position_data[3*i] / SM64_SCALE_FACTOR
+            y = geo.position_data[3*i+1] / SM64_SCALE_FACTOR
+            z = geo.position_data[3*i+2] / SM64_SCALE_FACTOR
             position.addData3(x, y, z)
 
             nx = geo.normal_data[3*i]
@@ -214,7 +244,7 @@ class SM64Mario(NodePath):
             r = geo.color_data[3*i]
             g = geo.color_data[3*i+1]
             b = geo.color_data[3*i+2]
-            color.addData3(r, g, b)
+            color.addData4(r, g, b, 0xFF)
 
             u = geo.uv_data[2*i]
             v = geo.uv_data[2*i+1]
@@ -229,16 +259,23 @@ class SM64Mario(NodePath):
             # for this mario, we should:
 
             # tick him natively first
-            self.sm64_state.sm64.sm64_mario_tick(self.mario_id, ct.byref(self.mario_inputs), ct.byref(self.mario_state), ct.byref(self.mario_geo))
+            try:
+                self.sm64_state.sm64.sm64_mario_tick(self.mario_id, ct.byref(self.mario_inputs), ct.byref(self.mario_state), ct.byref(self.mario_geo))
+            except:
+                print("Mario (id " + str(self.mario_id) + ") crashed or is untickable")
+                return Task.done
 
             # update the node
             ms = self.mario_state
             NodePath.setPos(self, ms.posX, ms.posY, ms.posZ)
 
             # update his visual geometry
+
+            # generates vertex data from a geo
             self.mario_vdata = self.make_mario_vdata(SM64Mario.vformat, self.mario_geo)
 
             if self.tick_count == 0:
+                # primitive data should remain the same, since triangles will not be modified - only vertices
                 prim = GeomTriangles(Geom.UHDynamic)
                 for i in range(self.mario_geo.numTrianglesUsed): prim.addNextVertices(3)
                 prim.closePrimitive()
@@ -250,7 +287,7 @@ class SM64Mario(NodePath):
             else:
                 self.mario_geom.setVertexData(self.mario_vdata)
 
-#            print("Ticked Mario position: " + str(self.getPos()))
+        #   print("Ticked Mario position: " + str(self.getPos()))
                 
         self.tick_count += 1
         return Task.cont
@@ -279,17 +316,14 @@ class SM64Mario(NodePath):
         self.mario_inputs.buttonA = int(a)
         self.mario_inputs.buttonB = int(b)
         self.mario_inputs.buttonZ = int(z)
-        pass
 
     def get_input_stick(self, x: float, y: float):
         self.mario_inputs.stickX = x
         self.mario_inputs.stickY = y
-        pass
 
     def get_input_camera(self, x: float, y: float):
         self.mario_inputs.camLookX = x
         self.mario_inputs.camLookY = y
-        pass
 
 COLLISION_TYPES = {
     "SURFACE_DEFAULT": 0x0000,

@@ -26,14 +26,13 @@ class MyApp(ShowBase):
 
         # Make the collisions
         self.sm64state.make_flat_plane_surface_array(20000)
+#        self.sm64state.add_surface_triangles(self.scene)
 
         # Create the Mario node
-        self.mario = SM64Mario(self, self.sm64state, LPoint3f(0, 20, 0))
+        self.mario = SM64Mario(self, self.sm64state, LPoint3f(0, 400, 0))
         print(self.mario)
         self.mario.reparentTo(self.render)
         print(self.mario)
-
-        print(self.mario.node())
 
         self.a = False
         self.b = False
