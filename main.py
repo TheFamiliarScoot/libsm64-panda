@@ -1,4 +1,7 @@
+#!/usr/bin/env python3
+
 import math
+import os
 from direct.showbase.ShowBase import ShowBase
 from sm64 import *
 from panda3d.core import *
@@ -23,7 +26,7 @@ class MyApp(ShowBase):
         self.scene.setPos(-8, 42, 0)
 
         # Set up the SM64 state
-        self.sm64state = SM64State("sm64.dll", "sm64.z64")
+        self.sm64state = SM64State(os.getcwd(), "sm64", "sm64.z64")
 
         # Make the collisions
         self.sm64state.make_flat_plane_surface_array(20000)
