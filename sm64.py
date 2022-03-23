@@ -7,6 +7,8 @@ from direct.task import Task
 # Panda3D Python bindings for libsm64
 # by TheFamiliarScoot
 
+# some classes and constants from libsm64-blender
+
 SM64_TEXTURE_WIDTH = 64 * 11
 SM64_TEXTURE_HEIGHT = 64
 SM64_GEO_MAX_TRIANGLES = 1024
@@ -91,6 +93,7 @@ class SM64State:
             texture_buff = (ct.c_ubyte * (4 * SM64_TEXTURE_WIDTH * SM64_TEXTURE_HEIGHT))()
             self.sm64.sm64_global_init(rom_chars.from_buffer(rom_bytes), texture_buff, None)
 
+        # converts loaded texture from ROM
         img = PNMImage(SM64_TEXTURE_WIDTH, SM64_TEXTURE_HEIGHT)
         img.addAlpha()
 
@@ -114,12 +117,12 @@ class SM64State:
         self.texture.default_sampler = samp
         self.texture.setAnisotropicDegree(0)
         
-        print(self.sm64)
         print("State created!")
     
     def __del__(self):
         self.sm64.sm64_global_terminate()
 
+    # Creates a flat plane surface with a specified size
     def make_flat_plane_surface_array(self, size):
         tempsurf = (SM64Surface * 2)()
         tri1 = SM64Surface()
@@ -149,15 +152,15 @@ class SM64State:
         tri2.v2z = size
         tempsurf[1] = tri2
 
-        print(tempsurf)
-        print(tri1)
-        print(tri2)
         self.sm64.sm64_static_surfaces_load(tempsurf, 2)
     
     # Adds a specified amount of nodes to the static surfaces list
+    # TODO(thefamiliarscoot) CURRENTLY BROKEN FIX IT
     def add_surface_triangles(self, *arg):
         tempdata = []
 
+        # clamp to bounds
+        # "inspired" by libsm64-blender
         def rebound(item):
             item = int(item)
             bounds = 0x7FFF
@@ -167,6 +170,7 @@ class SM64State:
                 return -bounds
             return item
 
+        # this sucks
         for model in arg:
             geomNodeCollection = model.findAllMatches('**/+GeomNode')
 
@@ -224,19 +228,21 @@ class SM64Mario(NodePath):
     vformat.addArray(vf_array)
     vformat = GeomVertexFormat.registerFormat(vformat)
     
+    # Shaders
     shader = Shader.load(Shader.SL_GLSL,
                      vertex="shaders/mario.vsh",
                      fragment="shaders/mario.fsh")
 
     def __init__(self, showbase, state, pos):
         self.mario_node = GeomNode('MarioNode')
+
+        # nodepath things
         NodePath.__init__(self, self.mario_node)
         NodePath.setPos(self, pos.getX(), pos.getY(), pos.getZ())
         NodePath.setHpr(self, 0, 90, 0)
 
         self.mario_id = -1
         self.tick_count = 0
-        self.mario_scale = 1
 
         if showbase == None:
             print("Showbase does not exist!")
@@ -247,9 +253,12 @@ class SM64Mario(NodePath):
             del self
             return
         
+        # buffers
         self.mario_inputs = SM64MarioInputs()
         self.mario_state = SM64MarioState()
         self.mario_geo = SM64MarioGeometryBuffers()
+
+        # state-related things
         self.sm64_state = state
         self.mario_id = self.sm64_state.sm64.sm64_mario_create(int(pos.getX()), int(pos.getY()), int(pos.getZ()))
         if self.mario_id == -1:
@@ -259,12 +268,17 @@ class SM64Mario(NodePath):
         self.mario_task_name = 'MarioTick' + str(self.mario_id)
         self.setName('MarioNode' + str(self.mario_id))
 
+        # vertex data
         self.mario_vdata = None
 
+        # textures
         NodePath.setTexture(self, self.sm64_state.texture)
         NodePath.setShader(self, SM64Mario.shader)
 
+        # task
         showbase.taskMgr.add(self.mario_tick, self.mario_task_name)
+
+        # let the user know
         print("Mario (id " + str(self.mario_id) + ") created and spawned at " + str(pos))
     
     # Builds the VertexData for Mario's geometry
@@ -331,7 +345,6 @@ class SM64Mario(NodePath):
                 self.mario_geom.addPrimitive(prim)
 
                 self.mario_node.addGeom(self.mario_geom)
-                print(prim)
             else:
                 self.mario_geom.setVertexData(self.mario_vdata)
 
@@ -342,7 +355,7 @@ class SM64Mario(NodePath):
 
     def __del__(self):
         if hasattr(self, 'mario_task_name'):
-            showbase.taskMgr.remove(self.mario_task_name)
+            self.showbase.taskMgr.remove(self.mario_task_name)
         if self.mario_id != -1:
             self.sm64_state.sm64_mario_delete(self.mario_id)
     
@@ -370,6 +383,7 @@ class SM64Mario(NodePath):
         self.mario_inputs.camLookX = x
         self.mario_inputs.camLookY = y
 
+# more libsm64-blender stuff lol
 COLLISION_TYPES = {
     "SURFACE_DEFAULT": 0x0000,
     "SURFACE_BURNING": 0x0001,

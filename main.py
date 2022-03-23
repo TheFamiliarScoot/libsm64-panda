@@ -6,6 +6,7 @@ from direct.showbase.ShowBase import ShowBase
 from sm64 import *
 from panda3d.core import *
 
+# example scene
 class MyApp(ShowBase):
     def __init__(self):
         ShowBase.__init__(self)
@@ -13,7 +14,6 @@ class MyApp(ShowBase):
         # Load the environment model.
 
         self.scene = self.loader.loadModel("models/environment")
-        print(type(self.scene))
 
         # Reparent the model to render.
 
@@ -33,10 +33,10 @@ class MyApp(ShowBase):
 
         # Create the Mario node
         self.mario = SM64Mario(self, self.sm64state, LPoint3f(0, 400, 0))
-        print(self.mario)
         self.mario.reparentTo(self.render)
-        print(self.mario)
 
+        # controls
+        # this sucks btw
         self.a = False
         self.b = False
         self.z = False
@@ -104,6 +104,8 @@ class MyApp(ShowBase):
     def handleMario(self, t):
         self.mario.get_input_buttons(self.a, self.b, self.z)
         self.mario.get_input_stick(self.xStick, self.yStick)
+
+        # TODO(thefamiliarscoot) camera!!!
 
 #        if self.xCamLeftDown: self.xCam += 0.1
 #        if self.xCamRightDown: self.xCam -= 0.1
