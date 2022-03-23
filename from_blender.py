@@ -4,11 +4,40 @@
 
 # Some classes and constants from libsm64-blender
 import ctypes as ct
+import os
 
 SM64_TEXTURE_WIDTH = 64 * 11
 SM64_TEXTURE_HEIGHT = 64
 SM64_GEO_MAX_TRIANGLES = 1024
 SM64_SCALE_FACTOR = 50
+
+def make_image(img, buffer):
+    i = 0
+    for y in range(SM64_TEXTURE_HEIGHT):
+        for x in range(SM64_TEXTURE_WIDTH):
+            r = float(buffer[i]) / 255
+            g = float(buffer[i+1]) / 255
+            b = float(buffer[i+2]) / 255
+            a = float(buffer[i+3]) / 255
+            i += 4
+            img.setXelA(x, y, r, g, b, a)
+
+def init_sm64(ref,  dll_dir, rom_dir):
+    ref.sm64 = ct.cdll.LoadLibrary(dll_dir)
+
+    ref.sm64.sm64_global_init.argtypes = [ ct.c_char_p, ct.POINTER(ct.c_ubyte), ct.c_char_p ]
+    ref.sm64.sm64_static_surfaces_load.argtypes = [ ct.POINTER(SM64Surface), ct.c_uint32 ]
+    ref.sm64.sm64_mario_create.argtypes = [ ct.c_int16, ct.c_int16, ct.c_int16 ]
+    ref.sm64.sm64_mario_create.restype = ct.c_int32
+    ref.sm64.sm64_mario_tick.argtypes = [ ct.c_uint32, ct.POINTER(SM64MarioInputs), ct.POINTER(SM64MarioState), ct.POINTER(SM64MarioGeometryBuffers) ]
+
+    with open(os.path.expanduser(rom_dir), 'rb') as file:
+        rom_bytes = bytearray(file.read())
+        rom_chars = ct.c_char * len(rom_bytes)
+        texture_buff = (ct.c_ubyte * (4 * SM64_TEXTURE_WIDTH * SM64_TEXTURE_HEIGHT))()
+        ref.sm64.sm64_global_init(rom_chars.from_buffer(rom_bytes), texture_buff, None)
+
+    return texture_buff
 
 class SM64Surface(ct.Structure):
     _fields_ = [
