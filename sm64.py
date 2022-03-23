@@ -1,4 +1,5 @@
 import os
+import sys
 import ctypes as ct
 from panda3d.core import *
 from direct.task import Task
@@ -59,9 +60,24 @@ class SM64MarioGeometryBuffers(ct.Structure):
     def __del__(self):
         pass
 
+class UnsupportedOSError(Exception):
+    pass
+
 class SM64State:
-    def __init__(self, dll_path: str, rom_path: str):
-        self.sm64 = ct.cdll.LoadLibrary(dll_path)
+    def __init__(self, dll_directory: str, dll_name_stub: str, rom_path: str):
+        dll_full_name = None
+        if sys.platform.startswith("darwin"):
+            # TODO(patchmixolydic): is this right? i don't macOS
+            dll_full_name = f"lib{dll_name_stub}.dylib"
+        elif sys.platform == "win32" or sys.platform == "cygwin":
+            dll_full_name = f"{dll_name_stub}.dll"
+        elif sys.platform == "linux" or sys.platform.startswith("freebsd"):
+            # TODO(patchmixolydic): this might also hold for AIX
+            dll_full_name = f"lib{dll_name_stub}.so"
+        else:
+            raise UnsupportedOSError(f"libsm64-panda currently doesn't support your platform ({sys.platform})")
+
+        self.sm64 = ct.cdll.LoadLibrary(os.path.join(dll_directory, dll_full_name))
 
         self.sm64.sm64_global_init.argtypes = [ ct.c_char_p, ct.POINTER(ct.c_ubyte), ct.c_char_p ]
         self.sm64.sm64_static_surfaces_load.argtypes = [ ct.POINTER(SM64Surface), ct.c_uint32 ]
