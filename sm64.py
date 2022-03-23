@@ -9,7 +9,7 @@ from direct.task import Task
 SM64_TEXTURE_WIDTH = 64 * 11
 SM64_TEXTURE_HEIGHT = 64
 SM64_GEO_MAX_TRIANGLES = 1024
-SM64_SCALE_FACTOR = 1
+SM64_SCALE_FACTOR = 50
 
 class SM64Surface(ct.Structure):
     _fields_ = [
@@ -74,6 +74,29 @@ class SM64State:
             rom_chars = ct.c_char * len(rom_bytes)
             texture_buff = (ct.c_ubyte * (4 * SM64_TEXTURE_WIDTH * SM64_TEXTURE_HEIGHT))()
             self.sm64.sm64_global_init(rom_chars.from_buffer(rom_bytes), texture_buff, None)
+
+        img = PNMImage(SM64_TEXTURE_WIDTH, SM64_TEXTURE_HEIGHT)
+        img.addAlpha()
+
+        i = 0
+        for y in range(SM64_TEXTURE_HEIGHT):
+            for x in range(SM64_TEXTURE_WIDTH):
+                r = float(texture_buff[i]) / 255
+                g = float(texture_buff[i+1]) / 255
+                b = float(texture_buff[i+2]) / 255
+                a = float(texture_buff[i+3]) / 255
+                i += 4
+                img.setXelA(x, y, r, g, b, a)
+
+        self.texture = Texture('MarioTex')
+        self.texture.load(img)
+
+        samp = SamplerState()
+        samp.setMinfilter(SamplerState.FT_nearest)
+        samp.setMagfilter(SamplerState.FT_nearest)
+
+        self.texture.default_sampler = samp
+        self.texture.setAnisotropicDegree(0)
         
         print(self.sm64)
         print("State created!")
@@ -176,19 +199,24 @@ class SM64State:
 class SM64Mario(NodePath):
     # Vertex Formats
     vf_array = GeomVertexArrayFormat()
-    vf_array.addColumn("position", 3, Geom.NTFloat32, Geom.CPoint)
+    vf_array.addColumn("vertex", 3, Geom.NTFloat32, Geom.CPoint)
     vf_array.addColumn("normal", 3, Geom.NTFloat32, Geom.CNormal)
     vf_array.addColumn("color", 3, Geom.NTFloat32, Geom.CColor)
-    vf_array.addColumn("uv", 2, Geom.NTFloat32, Geom.CTexcoord)
+    vf_array.addColumn("texcoord", 2, Geom.NTFloat32, Geom.CTexcoord)
 
     vformat = GeomVertexFormat()
     vformat.addArray(vf_array)
     vformat = GeomVertexFormat.registerFormat(vformat)
+    
+    shader = Shader.load(Shader.SL_GLSL,
+                     vertex="shaders/mario.vsh",
+                     fragment="shaders/mario.fsh")
 
     def __init__(self, showbase, state, pos):
         self.mario_node = GeomNode('MarioNode')
         NodePath.__init__(self, self.mario_node)
         NodePath.setPos(self, pos.getX(), pos.getY(), pos.getZ())
+        NodePath.setHpr(self, 0, 90, 0)
 
         self.mario_id = -1
         self.tick_count = 0
@@ -217,23 +245,26 @@ class SM64Mario(NodePath):
 
         self.mario_vdata = None
 
+        NodePath.setTexture(self, self.sm64_state.texture)
+        NodePath.setShader(self, SM64Mario.shader)
+
         showbase.taskMgr.add(self.mario_tick, self.mario_task_name)
         print("Mario (id " + str(self.mario_id) + ") created and spawned at " + str(pos))
     
     # Builds the VertexData for Mario's geometry
     def make_mario_vdata(self, fmt, geo):
         vdata = GeomVertexData('mario-vertex', fmt, Geom.UHDynamic)
-        vdata.setNumRows(geo.numTrianglesUsed * 3)
+        vdata.setNumRows(SM64_GEO_MAX_TRIANGLES * 3)
 
-        position = GeomVertexWriter(vdata, 'position')
+        position = GeomVertexWriter(vdata, 'vertex')
         normal = GeomVertexWriter(vdata, 'normal')
         color = GeomVertexWriter(vdata, 'color')
-        uv = GeomVertexWriter(vdata, 'uv')
+        uv = GeomVertexWriter(vdata, 'texcoord')
 
-        for i in range(geo.numTrianglesUsed):
-            x = geo.position_data[3*i] / SM64_SCALE_FACTOR
-            y = geo.position_data[3*i+1] / SM64_SCALE_FACTOR
-            z = geo.position_data[3*i+2] / SM64_SCALE_FACTOR
+        for i in range(SM64_GEO_MAX_TRIANGLES * 3):
+            x = (geo.position_data[3*i] - self.mario_state.posX) / SM64_SCALE_FACTOR
+            y = (geo.position_data[3*i+1] - self.mario_state.posY) / SM64_SCALE_FACTOR
+            z = (geo.position_data[3*i+2] - self.mario_state.posZ) / SM64_SCALE_FACTOR
             position.addData3(x, y, z)
 
             nx = geo.normal_data[3*i]
@@ -244,10 +275,10 @@ class SM64Mario(NodePath):
             r = geo.color_data[3*i]
             g = geo.color_data[3*i+1]
             b = geo.color_data[3*i+2]
-            color.addData4(r, g, b, 0xFF)
+            color.addData3(r, g, b)
 
             u = geo.uv_data[2*i]
-            v = geo.uv_data[2*i+1]
+            v = -geo.uv_data[2*i+1]
             uv.addData2(u, v)
         
         return vdata
@@ -267,7 +298,7 @@ class SM64Mario(NodePath):
 
             # update the node
             ms = self.mario_state
-            NodePath.setPos(self, ms.posX, ms.posY, ms.posZ)
+            NodePath.setPos(self, ms.posX / SM64_SCALE_FACTOR, -ms.posZ / SM64_SCALE_FACTOR, ms.posY / SM64_SCALE_FACTOR)
 
             # update his visual geometry
 
@@ -284,6 +315,7 @@ class SM64Mario(NodePath):
                 self.mario_geom.addPrimitive(prim)
 
                 self.mario_node.addGeom(self.mario_geom)
+                print(prim)
             else:
                 self.mario_geom.setVertexData(self.mario_vdata)
 
@@ -299,10 +331,7 @@ class SM64Mario(NodePath):
             self.sm64_state.sm64_mario_delete(self.mario_id)
     
     def setPos(self, x, y, z):
-        NodePath.setPos(self, x, y, z)
-
         if self.mario_id != -1:
-            # we should let the simulated mario know we updated his position, too
             self.mario_state.posX = x
             self.mario_state.posY = y
             self.mario_state.posZ = z
